@@ -394,7 +394,7 @@ const onSelectParticipant = (row: LeaderRow) => {
             </>
           ) : (
             <div className="card">
-              Silakan login tab <b>Admin</b> untuk upload CSV (Master/Start/Finish/Checkpoint).
+              Silakan login tab <b>Admin</b> untuk upload CSV (Master &amp; Finish wajib; Start optional jika memakai start global per kategori).
             </div>
           )}
         </>
