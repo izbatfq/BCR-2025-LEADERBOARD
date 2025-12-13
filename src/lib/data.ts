@@ -78,7 +78,7 @@ export type MasterParticipant = {
   sourceCategoryKey: CategoryKey;
 };
 
-async function requireCsvText(kind: "master" | "start" | "finish" | "checkpoint"): Promise<string> {
+async function requireCsvText(kind: "master" | "finish"): Promise<string> {
   const file = await getCsvFile(kind);
   if (!file?.text) {
     throw new Error(
@@ -86,6 +86,13 @@ async function requireCsvText(kind: "master" | "start" | "finish" | "checkpoint"
     );
   }
   return file.text;
+}
+
+async function getCsvTextOptional(
+  kind: "start" | "checkpoint"
+): Promise<string | null> {
+  const file = await getCsvFile(kind);
+  return file?.text || null;
 }
 
 export async function loadMasterParticipants(): Promise<{
@@ -149,7 +156,12 @@ export async function loadMasterParticipants(): Promise<{
 export type TimeEntry = { ms: number | null; raw: string };
 
 export async function loadTimesMap(kind: "start" | "finish"): Promise<Map<string, TimeEntry>> {
-  const text = await requireCsvText(kind);
+  const text =
+    kind === "finish" ? await requireCsvText("finish") : await getCsvTextOptional("start");
+  if (!text) {
+    // START is optional (can be handled via Category Start Times in Admin)
+    return new Map();
+  }
   const grid = parseCsv(text);
   if (!grid || grid.length <= 1) return new Map();
 
