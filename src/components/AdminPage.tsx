@@ -52,6 +52,19 @@ function saveCatStartMap(map: Record<string, string>) {
   localStorage.setItem(LS_CAT_START, JSON.stringify(map));
 }
 
+function formatNowAsTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const Y = d.getFullYear();
+  const M = pad(d.getMonth() + 1);
+  const D = pad(d.getDate());
+  const h = pad(d.getHours());
+  const m = pad(d.getMinutes());
+  const s = pad(d.getSeconds());
+  const ms = pad(d.getMilliseconds(), 3);
+  return `${Y}-${M}-${D} ${h}:${m}:${s}.${ms}`;
+}
+
 export default function AdminPage({
   allRows,
   onConfigChanged,
@@ -271,7 +284,9 @@ export default function AdminPage({
           <div>
             <h2 className="section-title">CSV Upload (Master / Start / Finish / Checkpoint)</h2>
             <div className="subtle">
-              Data timing sekarang berasal dari file CSV upload (bukan Google Sheet). Master, Start, dan Finish wajib.
+              Data timing sekarang berasal dari file CSV upload (bukan Google Sheet).
+              <b>Master &amp; Finish wajib</b>. <b>Start tidak wajib</b> jika kamu memakai
+              <b> Category Start Times</b> (start global per kategori) di bawah.
               Checkpoint optional.
             </div>
           </div>
@@ -330,7 +345,8 @@ export default function AdminPage({
           Format kolom minimal:
           <ul style={{ marginTop: 6, marginBottom: 0 }}>
             <li><b>Master</b>: EPC, Nama, Kelamin, Kategori, BIB (mis: BIB Number)</li>
-            <li><b>Start / Finish / Checkpoint</b>: EPC, Times (atau Time / Timestamp)</li>
+            <li><b>Finish / Checkpoint</b>: EPC, Times (atau Time / Timestamp)</li>
+            <li><b>Start</b>: optional (bisa pakai Category Start Times). Jika dipakai: EPC, Times (atau Time / Timestamp)</li>
           </ul>
         </div>
       </div>
@@ -388,6 +404,7 @@ export default function AdminPage({
               <tr>
                 <th>Category</th>
                 <th>Start Time (datetime)</th>
+                <th style={{ width: 200 }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -408,6 +425,32 @@ export default function AdminPage({
                       }
                     />
                   </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button
+                        className="btn ghost"
+                        onClick={() =>
+                          setCatStart((prev) => ({
+                            ...prev,
+                            [catKey]: formatNowAsTimestamp(),
+                          }))
+                        }
+                      >
+                        Set Now
+                      </button>
+                      <button
+                        className="btn ghost"
+                        onClick={() =>
+                          setCatStart((prev) => ({
+                            ...prev,
+                            [catKey]: "",
+                          }))
+                        }
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -415,10 +458,10 @@ export default function AdminPage({
         </div>
 
         <div className="subtle" style={{ marginTop: 8 }}>
-          Gunakan format tanggal & jam yang sama dengan di CSV timing
-          (misal: <code>2025-11-23 07:00:00.000</code>). Jika kolom dikosongkan,
-          kategori tersebut akan kembali memakai start time per peserta dari
-          CSV start.
+          Gunakan format tanggal &amp; jam yang sama dengan di CSV timing
+          (misal: <code>2025-11-23 07:00:00.000</code>). Kamu juga bisa klik <b>Set Now</b>
+          untuk mengisi otomatis berdasarkan jam saat ini. Jika kolom dikosongkan,
+          kategori tersebut akan kembali memakai start time per peserta dari CSV start (jika ada).
         </div>
       </div>
 
