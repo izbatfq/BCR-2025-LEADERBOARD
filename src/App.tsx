@@ -306,7 +306,14 @@ export default function App() {
     []
   );
 
-  const onSelectParticipant = (row: LeaderRow) => {
+  // ✅ Jika data belum pernah berhasil dimuat (belum upload CSV),
+  // langsung arahkan user ke tab Admin agar bisa upload.
+  useEffect(() => {
+    if (!hasLoadedOnce && state.status === "error") {
+      setActiveTab("Admin");
+    }
+  }, [hasLoadedOnce, state.status]);
+const onSelectParticipant = (row: LeaderRow) => {
     setSelected(row);
     setModalOpen(true);
   };
@@ -332,29 +339,11 @@ export default function App() {
     };
   }, [selected, checkpointMap]);
 
-  // ✅ Loading screen hanya dipakai sebelum data pertama kali siap
-  if (state.status === "loading" && !hasLoadedOnce) {
-    return (
-      <div className="page">
-        <h1 className="app-title">{eventTitle}</h1>
-        <div className="card">{state.msg}</div>
-      </div>
-    );
-  }
+  // ✅ Jangan memblokir UI ketika data belum ada:
+  // Admin harus tetap bisa diakses untuk upload CSV pertama kali.
+  const needsFirstUpload = !hasLoadedOnce && (state.status === "loading" || state.status === "error");
 
-  if (state.status === "error") {
-    return (
-      <div className="page">
-        <h1 className="app-title">{eventTitle}</h1>
-        <div className="card">
-          <div className="error-title">Error</div>
-          <div>{state.msg}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Setelah first load: UI selalu tampil, meskipun data lagi refresh di background
+// ✅ Setelah first load: UI selalu tampil, meskipun data lagi refresh di background
   return (
     <div className="page">
       <h1 className="app-title">{eventTitle}</h1>
@@ -371,29 +360,69 @@ export default function App() {
         ))}
       </div>
 
+      {/* ✅ Notice: first-time setup / missing upload */}
+      {needsFirstUpload && activeTab !== "Admin" && (
+        <div className="card">
+          <div className="error-title">Data belum siap</div>
+          <div style={{ marginTop: 6 }}>
+            {state.status === "loading"
+              ? state.msg
+              : state.msg}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button className="tab active" onClick={() => setActiveTab("Admin")}>
+              Buka Admin untuk Upload CSV
+            </button>
+          </div>
+        </div>
+      )}
+
+
+      {/* ✅ Overall */}
+      
       {/* ✅ Overall */}
       {activeTab === "Overall" && (
         <>
-          <RaceClock />
-          <LeaderboardTable
-            title="Overall Result (All Categories)"
-            rows={overall}
-            onSelect={onSelectParticipant}
-          />
+          {state.status === "ready" || hasLoadedOnce ? (
+            <>
+              <RaceClock />
+              <LeaderboardTable
+                title="Overall Result (All Categories)"
+                rows={overall}
+                onSelect={onSelectParticipant}
+              />
+            </>
+          ) : (
+            <div className="card">
+              Silakan login tab <b>Admin</b> untuk upload CSV (Master/Start/Finish/Checkpoint).
+            </div>
+          )}
         </>
       )}
 
+
+      {/* ✅ Per Category */}
+      
       {/* ✅ Per Category */}
       {activeTab !== "Overall" && activeTab !== "Admin" && (
         <>
-          <RaceClock />
-          <CategorySection
-            categoryKey={activeTab}
-            rows={byCategory[activeTab] || []}
-            onSelect={onSelectParticipant}
-          />
+          {state.status === "ready" || hasLoadedOnce ? (
+            <>
+              <RaceClock />
+              <CategorySection
+                categoryKey={activeTab}
+                rows={(byCategory as any)[activeTab] || []}
+                onSelect={onSelectParticipant}
+              />
+            </>
+          ) : (
+            <div className="card">
+              Data belum tersedia. Buka tab <b>Admin</b> untuk upload CSV.
+            </div>
+          )}
         </>
       )}
+
 
       {/* ✅ Admin */}
       {activeTab === "Admin" && (
