@@ -3,6 +3,7 @@
 import parseTimeToMs from "./time";
 import { parseCsv } from "./csvParse";
 import { getCsvFile } from "./idb";
+import { getCsvFromBlob } from "./vercelBlob";
 import { CATEGORY_KEYS, type CategoryKey } from "./config";
 
 const headerAliases: Record<string, string[]> = {
@@ -79,7 +80,12 @@ export type MasterParticipant = {
 };
 
 async function requireCsvText(kind: "master" | "finish"): Promise<string> {
-  const file = await getCsvFile(kind);
+  // Try Vercel Blob first, fallback to IndexedDB
+  let file = await getCsvFromBlob(kind);
+  if (!file) {
+    file = await getCsvFile(kind);
+  }
+  
   if (!file?.text) {
     throw new Error(
       `CSV '${kind}' belum diupload. Silakan login Admin → Upload CSV.`
@@ -91,7 +97,11 @@ async function requireCsvText(kind: "master" | "finish"): Promise<string> {
 async function getCsvTextOptional(
   kind: "start" | "checkpoint"
 ): Promise<string | null> {
-  const file = await getCsvFile(kind);
+  // Try Vercel Blob first, fallback to IndexedDB
+  let file = await getCsvFromBlob(kind);
+  if (!file) {
+    file = await getCsvFile(kind);
+  }
   return file?.text || null;
 }
 
@@ -216,7 +226,11 @@ export async function loadTimesMap(kind: "start" | "finish"): Promise<Map<string
 
 export async function loadCheckpointTimesMap(): Promise<Map<string, string[]>> {
   // checkpoint is optional
-  const file = await getCsvFile("checkpoint");
+  // Try Vercel Blob first, fallback to IndexedDB
+  let file = await getCsvFromBlob("checkpoint");
+  if (!file) {
+    file = await getCsvFile("checkpoint");
+  }
   if (!file?.text) return new Map();
 
   const grid = parseCsv(file.text);
