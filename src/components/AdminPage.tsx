@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { LeaderRow } from "./LeaderboardTable";
 import { CATEGORY_KEYS, DEFAULT_EVENT_TITLE, LS_DATA_VERSION, LS_EVENT_TITLE, type CsvKind } from "../lib/config";
 import { putCsvFile, deleteCsvFile, listCsvMeta } from "../lib/idb";
+import { uploadCsvToBlob, deleteCsvFromBlob, listCsvMetaFromBlob } from "../lib/vercelBlob";
 import { parseCsv, countDataRows } from "../lib/csvParse";
 
 const ADMIN_USER = "izbat@izbat.org";
@@ -103,8 +104,13 @@ export default function AdminPage({
   useEffect(() => {
     (async () => {
       try {
-        const meta = await listCsvMeta();
-        setCsvMeta(meta as any);
+        try {
+          const meta = await listCsvMetaFromBlob();
+          setCsvMeta(meta as any);
+        } catch {
+          const meta = await listCsvMeta();
+          setCsvMeta(meta as any);
+        }
       } catch {
         // ignore
       }
@@ -112,8 +118,17 @@ export default function AdminPage({
   }, [authed]);
 
   const refreshCsvMeta = async () => {
-    const meta = await listCsvMeta();
-    setCsvMeta(meta as any);
+    try {
+      try {
+        const meta = await listCsvMetaFromBlob();
+        setCsvMeta(meta as any);
+      } catch {
+        const meta = await listCsvMeta();
+        setCsvMeta(meta as any);
+      }
+    } catch (error) {
+      console.error('Error refreshing CSV meta:', error);
+    }
   };
 
   const saveEventTitle = () => {
@@ -121,47 +136,141 @@ export default function AdminPage({
     localStorage.setItem(LS_EVENT_TITLE, t || DEFAULT_EVENT_TITLE);
     bumpDataVersion();
     onConfigChanged();
-    alert("Event title updated");
+    alert("Judul event berhasil diperbarui");
   };
 
   const uploadCsv = async (kind: CsvKind, file: File) => {
     const text = await file.text();
     const grid = parseCsv(text);
-    const headers = (grid[0] || []).map((x) => String(x || "").toLowerCase());
-
-    const hasEpc = headers.some((h) => h.includes("epc"));
-    if (!hasEpc) {
-      alert(`CSV '${kind}': kolom EPC tidak ditemukan.`);
+    
+    if (!grid || grid.length === 0) {
+      alert(`CSV '${kind}': File kosong atau tidak valid.`);
       return;
     }
+    
+    const headers = (grid[0] || []).map((x) => String(x || "").trim());
+    
+    // Normalize headers untuk matching (sama seperti di data.ts)
+    function norm(s: string) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/\n/g, " ")
+        .trim();
+    }
+    
+    const headersNorm = headers.map(norm);
 
-    if (kind !== "master") {
-      const hasTimes = headers.some(
-        (h) => h.includes("times") || h.includes("time") || h.includes("timestamp") || h.includes("jam")
+    // Menggunakan headerAliases yang sama dengan data.ts
+    const headerAliases: Record<string, string[]> = {
+      epc: ["epc", "uid", "tag", "rfid", "chip epc", "epc code"],
+      bib: ["bib", "no bib", "bib number", "race bib", "nomor bib", "no. bib"],
+      name: ["nama lengkap", "full name", "name", "nama", "participant name"],
+      gender: ["jenis kelamin", "gender", "sex", "jk", "kelamin"],
+      category: ["kategori", "category", "kelas", "class"],
+      times: ["times", "time", "timestamp", "start time", "finish time", "jam", "checkpoint time", "cp time"],
+    };
+
+    // Validasi untuk Master CSV
+    if (kind === "master") {
+      const epcAliases = headerAliases.epc.map(norm);
+      const hasEpc = headersNorm.some((h) => 
+        epcAliases.some((alias) => h === alias || h.includes(alias))
       );
+      
+      if (!hasEpc) {
+        const headerList = headers.length > 0 ? headers.join(", ") : "(tidak ada header)";
+        alert(
+          `CSV '${kind}': kolom EPC tidak ditemukan.\n\n` +
+          `Kolom yang ditemukan: ${headerList}\n\n` +
+          `Format Master CSV harus memiliki kolom:\n` +
+          `- EPC (atau UID, Tag, RFID, Chip EPC)\n` +
+          `- NO BIB (atau BIB, Bib Number)\n` +
+          `- Nama Lengkap (atau Name, Nama)\n` +
+          `- Gender (atau Jenis Kelamin, JK)\n` +
+          `- Kategori (atau Category, Kelas)\n\n` +
+          `Catatan: CSV yang diupload sepertinya adalah hasil export leaderboard.\n` +
+          `Master CSV harus berisi data peserta dengan kolom EPC untuk matching.`
+        );
+        return;
+      }
+    }
+
+    // Validasi untuk Start, Finish, Checkpoint CSV
+    if (kind !== "master") {
+      const epcAliases = headerAliases.epc.map(norm);
+      const timesAliases = headerAliases.times.map(norm);
+      
+      const hasEpc = headersNorm.some((h) => 
+        epcAliases.some((alias) => h === alias || h.includes(alias))
+      );
+      const hasTimes = headersNorm.some((h) => 
+        timesAliases.some((alias) => h === alias || h.includes(alias))
+      );
+      
+      if (!hasEpc) {
+        const headerList = headers.length > 0 ? headers.join(", ") : "(tidak ada header)";
+        alert(
+          `CSV '${kind}': kolom EPC tidak ditemukan.\n\n` +
+          `Kolom yang ditemukan: ${headerList}\n\n` +
+          `Format CSV '${kind}' harus memiliki:\n` +
+          `- EPC (atau UID, Tag, RFID)\n` +
+          `- Times (atau Time, Timestamp, Jam)`
+        );
+        return;
+      }
+      
       if (!hasTimes) {
-        alert(`CSV '${kind}': kolom Times/Time tidak ditemukan.`);
+        const headerList = headers.length > 0 ? headers.join(", ") : "(tidak ada header)";
+        alert(
+          `CSV '${kind}': kolom Times/Time tidak ditemukan.\n\n` +
+          `Kolom yang ditemukan: ${headerList}\n\n` +
+          `Format CSV '${kind}' harus memiliki:\n` +
+          `- EPC (atau UID, Tag, RFID)\n` +
+          `- Times (atau Time, Timestamp, Jam)`
+        );
         return;
       }
     }
 
     const rows = countDataRows(grid);
-    await putCsvFile({ kind, text, filename: file.name, rows });
+    const isDev = import.meta.env.DEV;
+    
+    if (isDev) {
+      await putCsvFile({ kind, text, filename: file.name, rows });
+    } else {
+      try {
+        const blob = await uploadCsvToBlob(kind, file);
+        console.log('File uploaded to Vercel Blob:', blob.url);
+        const response = await fetch(blob.url);
+        const uploadedText = await response.text();
+        await putCsvFile({ kind, text: uploadedText, filename: file.name, rows });
+      } catch (error: any) {
+        console.error('Upload to Vercel Blob failed, using IndexedDB only:', error);
+        await putCsvFile({ kind, text, filename: file.name, rows });
+      }
+    }
+    
     bumpDataVersion();
     onConfigChanged();
     await refreshCsvMeta();
-    alert(`Uploaded '${kind}' (${rows} rows)`);
+    alert(`'${kind}' berhasil diupload (${rows} baris)`);
   };
 
   const clearAllCsv = async () => {
     if (!confirm("Reset semua CSV yang sudah diupload?")) return;
     for (const k of ["master", "start", "finish", "checkpoint"] as CsvKind[]) {
+      try {
+        await deleteCsvFromBlob(k);
+      } catch (error) {
+        console.error(`Failed to delete ${k} from blob:`, error);
+      }
       await deleteCsvFile(k);
     }
     bumpDataVersion();
     onConfigChanged();
     await refreshCsvMeta();
-    alert("All uploaded CSV cleared");
+    alert("Semua CSV yang diupload telah dihapus");
   };
 
   const filtered = useMemo(() => {
@@ -187,7 +296,7 @@ export default function AdminPage({
       saveAuth(true);
       setAuthed(true);
     } else {
-      alert("Invalid credentials");
+      alert("Kredensial tidak valid");
     }
   };
 
@@ -203,7 +312,7 @@ export default function AdminPage({
     else saveCutoffMs(h * 3600000);
 
     onConfigChanged();
-    alert("Cut off time updated");
+    alert("Cut off time berhasil diperbarui");
   };
 
   const toggleDQ = (epc: string) => {
@@ -218,7 +327,7 @@ export default function AdminPage({
     saveCatStartMap(catStart);
     onConfigChanged();
     alert(
-      "Category start times updated.\nTotal time will use these values per kategori."
+      "Waktu start kategori berhasil diperbarui.\nTotal time akan menggunakan nilai ini per kategori."
     );
   };
 
@@ -226,7 +335,7 @@ export default function AdminPage({
     return (
       <div className="card">
         <h2 className="section-title">Admin Login</h2>
-        <div className="subtle">Restricted access</div>
+        <div className="subtle">Akses terbatas</div>
 
         <div className="admin-login">
           <input
@@ -519,7 +628,7 @@ export default function AdminPage({
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={6} className="empty">
-                    No runners matched.
+                    Tidak ada peserta yang cocok.
                   </td>
                 </tr>
               )}
